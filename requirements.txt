@@ -2,10 +2,10 @@ python-dotenv
 langchain
 faiss-cpu
 sentence-transformers
-langchain-huggingface
+langchain_huggingface
+langchain_community
 langchain-groq
 crewai
-crewai-tools
-
-streamlit==1.26.0
-google-generativeai==0.3.0
+crewai_tools
+streamlit
+google-generativeai
