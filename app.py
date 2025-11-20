@@ -241,7 +241,7 @@ def run_streamlit():
         @st.cache_resource
         def load_db_from_index(path):
             emb = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-            return FAISS.load_local(path, emb)
+            return FAISS.load_local(path, emb, allow_dangerous_deserialization=True)
 
         @st.cache_resource
         def build_db_from_pdf(path):
