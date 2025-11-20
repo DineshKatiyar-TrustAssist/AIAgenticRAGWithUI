@@ -1,84 +1,204 @@
-<!-- Clean single README for AIAgenticRAGWithUI -->
+<!-- Agentic RAG — README generated from app.py -->
 
 # Agentic RAG (app.py) — With Streamlit UI
 
-This README documents `app.py` in the `AIAgenticRAGWithUI` folder. It explains the CLI and Streamlit UI usage, FAISS index persistence, and installation notes.
+This project demonstrates a small Retrieval-Augmented Generation (RAG) pipeline that can run as a CLI or as a Streamlit app. It
+builds a FAISS vector store from an uploaded PDF (or local PDF), uses an embedding model for semantic search, routes queries
+to local knowledge or web-scraped content, and synthesizes answers with an LLM.
 
-## Overview
+The single source of truth is `app.py` which contains both frontends (CLI + Streamlit) and the RAG pipeline.
 
-- CLI mode: `python app.py` with flags to build/load a FAISS index and run a query.
-- Streamlit UI: `streamlit run app.py` to upload a PDF, enter a query, and view answers interactively.
+## Quick overview
 
-Both modes share the same pipeline: PDF → chunks → embeddings → FAISS → router → LLM.
+- Input sources: local PDF (primary) and optional web search/scraping when local knowledge is insufficient.
+- Pipeline: PDF -> chunking -> embeddings -> FAISS similarity search -> router decides local vs web -> LLM answer synthesis.
+- Frontends: CLI and Streamlit UI share the same processing functions.
 
-## Key features
+## What this README documents
 
-- Streamlit UI: PDF upload, query input, optional load/save FAISS index, caching via `st.cache_resource`.
-- CLI flags: `--pdf`, `--query`, `--no-web`, `--save-index`, `--index-path`.
-- FAISS persistence: save/load FAISS index on disk to skip rebuilding.
-- Stable embedding model via `EMBEDDING_MODEL` constant.
+- How to configure env vars and dependencies
+- How to run the CLI and Streamlit UI
+- How FAISS index persistence works (save/load)
+- Troubleshooting tips (faiss on macOS, dependency issues)
 
 ## Requirements & configuration
 
-- Python 3.10+ (3.11/3.12 recommended).
-- Add env vars in a `.env` file or export in your shell:
+- Python: 3.10+ recommended (3.11/3.12 are fine).
+- Required environment variables (create a `.env` or export in shell):
 
-```
+```bash
 GROQ_API_KEY=your_groq_key
 SERPER_API_KEY=your_serper_key
 GEMINI_API_KEY=your_gemini_key
 ```
 
-## Dependencies
+- The code uses an `EMBEDDING_MODEL` constant. Current default in `app.py`:
 
-See `AIAgenticRAGWithUI/requirements.txt`. Important packages include: `python-dotenv`, `langchain` (or community variants), `faiss-cpu`, `sentence-transformers`, `streamlit`, and `google-generativeai`.
-
-Install example:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r AIAgenticRAGWithUI/requirements.txt
+```
+sentence-transformers/all-mpnet-base-v2
 ```
 
-## How to run
+## Dependencies
 
-CLI example:
+See `requirements.txt` in this folder. Key libraries used by `app.py` include:
+
+- langchain-community FAISS wrapper (`langchain_community.vectorstores.FAISS`)
+- `PyPDFLoader` (PDF loading)
+- `RecursiveCharacterTextSplitter` (chunking)
+- `HuggingFaceEmbeddings` (embeddings)
+- `ChatGroq` (Groq LLM wrapper)
+- `crewai` / `crewai_tools` (web search & scraping agents)
+- `google.generativeai` (Gemini client used by crew)
+- `streamlit` (for the UI)
+
+If you hit install problems for FAISS on macOS, see Troubleshooting below.
+
+## Running the app
+
+All examples assume you run commands from the `AIAgenticRAGWithUI` folder.
+
+### CLI mode
+
+The CLI is the non-Streamlit branch inside `app.py`. It supports building/loading a FAISS index and running a single query.
+
+Example:
 
 ```bash
-python AIAgenticRAGWithUI/app.py \
+python app.py \
   --pdf path/to/your.pdf \
   --query "Summarize agentic RAG" \
   --save-index \
   --index-path my_faiss_index
 ```
 
-Streamlit UI:
+CLI flags (as implemented in `app.py`):
+
+- `--pdf` : Path to PDF to index (default `Agent Quality.pdf`).
+- `--query` : Query string to ask the agent.
+- `--no-web` : Disable web search/scraping; only local knowledge will be used.
+- `--save-index` : Save the built FAISS index to disk.
+- `--index-path` : Directory path to save/load the FAISS index (default `faiss_index`).
+
+Behavior notes:
+
+- On start, the code attempts to load an existing FAISS index from `--index-path`. If loading fails or the path doesn't exist, it will try to build from the provided `--pdf`.
+- If `--no-web` is passed and the router decides local knowledge is insufficient, the program exits with a message.
+
+### Streamlit UI
+
+Run the Streamlit UI with:
 
 ```bash
-streamlit run AIAgenticRAGWithUI/app.py
+streamlit run app.py
 ```
 
-Upload a PDF, optionally set an index path, enter a query, and click Ask.
+UI features:
+
+- Upload a PDF to build a local vector DB (or set an index path to reuse a previously saved index).
+- Enter a query in the text input and press Ask.
+- Toggle "Allow web search" to enable/disable web scraping when local knowledge is insufficient.
+- Optionally save the FAISS index to the given index path so subsequent runs can load it instead of rebuilding.
+
+Implementation details:
+
+- The Streamlit branch uses `st.cache_resource` to cache loading/building the vector DB during a session.
+- Uploaded PDFs are saved to a temporary file and used to build the index via `setup_vector_db`.
+
+## How the pipeline works (contract)
+
+Inputs:
+
+- PDF file (path or uploaded stream)
+- Query string
+- Optional: index path (existing FAISS index directory)
+
+Outputs:
+
+- Human-readable answer text from the LLM printed to stdout (CLI) or shown in the Streamlit UI.
+
+Success criteria:
+
+- For queries answerable from the PDF, the system should return an accurate, context-grounded answer without calling the web scraper.
+- For queries not found locally, and if web search is enabled, the system should fetch web content, then synthesize an answer.
+
+Error modes:
+
+- Missing or invalid PDF -> index build fails and the program prints an error.
+- FAISS load/save errors -> index rebuild fallback executed (if PDF available) or readable error.
+
+## Important functions (where to look in `app.py`)
+
+- `setup_vector_db(pdf_path)` : load PDF, chunk, create embeddings, build FAISS index.
+- `get_local_content(vector_db, query)` : similarity search to gather local context.
+- `check_local_knowledge(query, context)` : router using LLM to decide if local content suffices (returns Yes/No).
+- `get_web_content(query)` : runs the crew (SerperDevTool + ScrapeWebsiteTool) to fetch web content.
+- `process_query(query, vector_db, local_context)` : orchestration that chooses local vs web and calls the LLM for final answer.
 
 ## Index persistence
 
-- Load with `FAISS.load_local(index_path, embeddings)` and save with `vector_db.save_local(index_path)`.
-- Keep `EMBEDDING_MODEL` consistent when saving/loading.
+- The code uses `FAISS.save_local(index_path)` and `FAISS.load_local(index_path, embeddings)` to persist and reload indices.
+- Important: always use the same `EMBEDDING_MODEL` when saving and loading an index.
+
+### Example index workflow
+
+1. Build index from `my.pdf` and save:
+
+```bash
+python app.py --pdf my.pdf --save-index --index-path my_faiss_index
+```
+
+2. Later, load existing index and run queries:
+
+```bash
+python app.py --index-path my_faiss_index --query "Explain X"
+```
 
 ## Troubleshooting
 
-- Streamlit import errors: install `streamlit` in the active venv.
-- FAISS build issues on macOS: prefer conda (`faiss-cpu`) or prebuilt wheels.
+- FAISS installation on macOS: `faiss` can be difficult to pip-install on macOS/ARM. Recommended options:
+  - Use conda/miniforge and `conda install -c conda-forge faiss-cpu`
+  - Or install a compatible pre-built wheel for your Python version/arch
+  - Alternatively run on x86_64 environment or Docker image that bundles faiss
 
-## Next steps
+- If `pip install -r requirements.txt` fails with native build errors, try:
 
-- Derive deterministic index names from PDF content hashes.
-- Add provenance tracking in the UI.
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip setuptools wheel
+# prefer conda for faiss or install faiss via conda
+```
+
+- Missing API keys: ensure `GROQ_API_KEY`, `SERPER_API_KEY`, and `GEMINI_API_KEY` are set. The Streamlit UI and crew tools rely on these for web queries and some LLMs.
+
+## Security & privacy notes
+
+- Uploaded PDFs may be temporarily stored on disk in a temporary file by the Streamlit flow. Remove any sensitive documents or adapt the code to encrypt/remove files after processing.
+- When enabling web search, the query is sent to external services and scraped content may include sensitive material. Review privacy policies for the services used (Serper/Gemini/Groq).
+
+## Developer notes & next steps
+
+- Pin dependency versions in `requirements.txt` to avoid installation surprises across platforms.
+- Add a small sample PDF and a pytest that builds an index and runs a short query to verify the end-to-end pipeline.
+- Add provenance in the UI: show which chunks/documents contributed to the answer (for traceability).
+- Consider moving web scraping to an asynchronous background worker if large or slow operations are frequent.
+
+## Where to look next
+
+- Main code: `app.py` (both CLI and Streamlit logic live here).
+- Edit embeddings model: change `EMBEDDING_MODEL` constant in `app.py` if you want a different model.
+- Dependency list: `requirements.txt` in this folder.
 
 ---
 
-For questions, inspect `app.py` or open an issue.
+If you want, I can now:
+
+1. Pin the dependencies in `requirements.txt` to a tested set of versions.
+2. Add a minimal test harness + sample PDF to exercise the pipeline.
+3. Diagnose any `pip install` errors you saw (paste the pip output) and propose a platform-specific fix.
+
+Pick one and I'll proceed.
+
 ---
 
 For questions, inspect `app.py` or open an issue.
