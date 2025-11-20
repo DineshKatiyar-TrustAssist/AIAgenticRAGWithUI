@@ -1,122 +1,172 @@
-<h1><span style="color:#2b8a3e">Agentic RAG (app.py)</span></h1>
+<h1><span style="color:#2b8a3e">Agentic RAG (app.py) — With Streamlit UI</span></h1>
 
-<p>This README documents the `app.py` implementation in this folder. It explains what the script does, how to configure environment variables, install dependencies, run it, and adapt it for your own Agentic Retrieval-Augmented Generation (RAG) workflows. Headings use different colors for readability.</p>
+<p>This README documents the `app.py` implementation in the `AIAgenticRAGWithUI` folder. It explains how to use the CLI and Streamlit UI, the new FAISS index persistence behavior, and the updated requirements.</p>
 
 <h2><span style="color:#1f77b4">Overview</span></h2>
 
-`app.py` implements a small Agentic RAG prototype that:
+This version of `app.py` provides two modes:
 
-- Loads a PDF, chunks it, and builds a FAISS vector store with Hugging Face sentence-transformer embeddings.
-- Uses a router function to determine whether a user query can be answered from local (PDF) content.
-- If local knowledge is insufficient, spins up a web-search + scraping crew (via `crewai` tools) to fetch context from the web.
-- Uses a combo of LLMs (Groq `ChatGroq` and a `crew_llm`) to decide routing and to synthesize the final answer.
+- CLI mode: run with `python app.py` and optional flags to build/load a FAISS index and run a query.
+- Streamlit UI: run with `streamlit run app.py` to upload a PDF, enter a query, and view responses interactively.
 
-This is a demonstration/prototype. The code uses several third-party LLM tool wrappers and search/scraping tools and expects API keys and a local PDF file.
+Both use the same core pipeline: PDF -> chunk -> embeddings -> FAISS vector store -> router -> LLM answer generation (local or web-sourced).
 
-<h2><span style="color:#d62728">Quick features</span></h2>
+<h2><span style="color:#d62728">New & important features</span></h2>
 
-- PDF -> FAISS vector store (via `PyPDFLoader`, `RecursiveCharacterTextSplitter`, `HuggingFaceEmbeddings`).
-- Local routing: `check_local_knowledge(query, context)` decides whether to use local vector DB or web scraping.
-- Web search & scraping: configured agents using `crewai` and `SerperDevTool` / `ScrapeWebsiteTool`.
-- Final answer generation with `ChatGroq` LLM and a Crew-managed LLM for agent tasks.
+- Streamlit UI: PDF upload, query input, option to load/save FAISS index, result display, and caching via `st.cache_resource`.
+- CLI flags: `--pdf`, `--query`, `--no-web`, `--save-index`, `--index-path`.
+- FAISS persistence: build and save `FAISS` index to disk; CLI and UI can load an existing index to skip rebuilding.
+- Single embedding model constant: `EMBEDDING_MODEL` used consistently for save/load compatibility.
+- Requirements updated to include `streamlit` and `google-generativeai`.
+- CLI flags: `--pdf`, `--query`, `--no-web`, `--save-index`, `--index-path` to control behavior from the terminal.
+- FAISS index persistence: the app can save a built FAISS index to disk and reload it to avoid rebuilding on every run.
+- Consistent embedding model: `EMBEDDING_MODEL` constant is used so indexes built/loaded use the same embedding model.
+- Requirements updated with `streamlit` and `google-generativeai` entries to support the UI and Gemini client.
 
 <h2><span style="color:#9467bd">Requirements</span></h2>
 
-- Python 3.10+ recommended.
-- A GPU or sufficiently large CPU if using large LLMs locally (the script references large models; some require hosted APIs).
+- Python 3.10+ recommended (the project has been tested with modern Python 3.11/3.12 environments).
 - Environment variables (set in a `.env` file or in your environment):
   - `GROQ_API_KEY` — API key for Groq/ChatGroq usage (if required)
   - `SERPER_API_KEY` — API key for the Serper web search tool
-  - `GEMINI` — API key for the Gemini LLM used by `crew_llm`
+  - `GEMINI_API_KEY` — API key for the Gemini LLM used by `crew_llm` (note name change from earlier `GEMINI`)
+````markdown
+<h1><span style="color:#2b8a3e">Agentic RAG (app.py) — With Streamlit UI</span></h1>
 
-<h2><span style="color:#17becf">Python dependencies</span></h2>
+<p>This README documents the `app.py` implementation in this folder (`AIAgenticRAGWithUI`). It includes updated instructions for the Streamlit UI, CLI flags, FAISS index persistence, and updated requirements.</p>
 
-The script imports from a number of libraries. A minimal set (subject to your environment and package names) includes:
+<h2><span style="color:#1f77b4">Overview</span></h2>
+
+This version of `app.py` extends the original Agentic RAG prototype with two modes of operation:
+
+- Command-line (CLI) mode: run with `python app.py` and optional flags to load/build a FAISS index and run a single query.
+- Streamlit UI mode: run with `streamlit run app.py` to open a browser UI that accepts a PDF upload, lets you enter a query, and shows the answer interactively.
+
+Both modes reuse the same core functions:
+
+- PDF -> FAISS vector store (via `PyPDFLoader`, `RecursiveCharacterTextSplitter`, `HuggingFaceEmbeddings`).
+- Local routing: `check_local_knowledge(query, context)` decides whether to answer from local PDF content.
+- Web search & scraping: `crewai` agents (`SerperDevTool`, `ScrapeWebsiteTool`) are used if local context does not contain the answer.
+- Final answer generation uses `ChatGroq` and a crew-managed `crew_llm` (Gemini) where configured.
+
+<h2><span style="color:#d62728">New/Updated Features</span></h2>
+
+- Streamlit UI (browser): upload a PDF, optionally load/save a FAISS index, enter queries, and press Ask. The UI caches the vector DB per uploaded file for faster repeated queries.
+- CLI flags: `--pdf`, `--query`, `--no-web`, `--save-index`, `--index-path` to control behavior from the terminal.
+- FAISS index persistence: the app can save a built FAISS index to disk and reload it to avoid rebuilding on every run.
+- Consistent embedding model: `EMBEDDING_MODEL` constant is used so indexes built/loaded use the same embedding model.
+- Requirements updated with `streamlit` and `google-generativeai` entries to support the UI and Gemini client.
+
+<h2><span style="color:#9467bd">Requirements</span></h2>
+
+- Python 3.10+ recommended (the project has been tested with modern Python 3.11/3.12 environments).
+- Environment variables (set in a `.env` file or in your environment):
+  - `GROQ_API_KEY` — API key for Groq/ChatGroq usage (if required)
+  - `SERPER_API_KEY` — API key for the Serper web search tool
+  - `GEMINI_API_KEY` — API key for the Gemini LLM used by `crew_llm` (note name change from earlier `GEMINI`)
+
+<h2><span style="color:#17becf">Python dependencies (recommended)</span></h2>
+
+The repository includes a `requirements.txt` in `AIAgenticRAGWithUI/` with the main dependencies used by the UI variant. Key packages:
 
 - python-dotenv
-- langchain
-- faiss-cpu (or faiss-gpu) and/or `langchain` vectorstore bindings
+- langchain (or langchain-community variants used here)
+- faiss-cpu (or faiss-gpu)
 - sentence-transformers
-- langchain-huggingface (or `langchain_huggingface.embeddings` as used)
-- crewai and crewai_tools (project-specific wrappers used in this repo)
-- langchain_groq (ChatGroq wrapper)
-- PyPDFLoader (from `langchain.document_loaders`)
+- langchain-huggingface
+- langchain-groq
+- crewai and crewai-tools
+- streamlit==1.26.0
+- google-generativeai==0.3.0
 
-Example pip install line (adjust versions and packages per your environment):
+Install (example):
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install python-dotenv langchain faiss-cpu sentence-transformers langchain-huggingface crewai crewai-tools langchain-groq
+pip install -r AIAgenticRAGWithUI/requirements.txt
 ```
 
-Note: Some packages have different names or require extra installation steps (e.g., `faiss` can be tricky on macOS). Adapt as needed.
+Note: FAISS can be tricky on macOS; consider installing `faiss-cpu` via conda if you hit issues.
 
 <h2><span style="color:#ff7f0e">Configuration</span></h2>
 
-1. Place the PDF you want to use in the same directory or update `pdf_path` in `main()` (default: `genai-principles.pdf`).
-2. Create a `.env` file with the required API keys or export them in your shell, e.g.: 
+1. Create a `.env` file in the project root (or export env vars). Example:
 
 ```
 GROQ_API_KEY=your_groq_key
 SERPER_API_KEY=your_serper_key
-GEMINI=your_gemini_key
+GEMINI_API_KEY=your_gemini_key
 ```
 
-3. Ensure you have adequate compute and API access for the LLMs referenced. The example LLM models in `app.py` are large and may require hosted endpoints or different credentials.
+2. Decide whether you want to run the Streamlit UI or CLI. The CLI supports persistent FAISS indexes and quick one-off queries; the UI is better for interactive exploration.
 
 <h2><span style="color:#8c564b">How it works (contract)</span></h2>
 
-- Inputs: a query (string), a vector DB (built from a PDF). The code constructs a `local_context` from the vector DB (empty string initially) and uses `process_query(query, vector_db, local_context)`.
-- Outputs: a text answer (string) printed to stdout and returned by `process_query`.
-- Data shapes: `vector_db` is a FAISS vector store produced by `setup_vector_db(pdf_path)`; `query` is a plain text string.
-- Error modes: missing PDF file, missing API keys, dependency import errors, or network timeouts when calling web tools/LLMs.
-- Success criteria: function returns a coherent string answer and prints it.
+- Inputs: a query (string) and a FAISS vector DB (built from a PDF or loaded from disk). The UI accepts a PDF upload and optional index path; the CLI accepts `--pdf` and `--index-path`.
+- Outputs: a text answer (string) displayed in the UI or printed to stdout.
+- Data shapes: `vector_db` is a FAISS wrapper from LangChain-community; documents are chunked strings returned by `PyPDFLoader`.
+- Error modes: missing PDF, invalid index, missing API keys, dependency errors, network timeouts.
 
 <h2><span style="color:#e377c2">Edge cases & considerations</span></h2>
 
-- Empty PDF or improperly loaded documents will produce empty vectors and empty `local_context`.
-- The route decision relies on `check_local_knowledge` which queries an LLM — that can be noisy and sometimes wrong. Consider adding a confidence threshold or fallback rules.
-- Web scraping might return long raw HTML or require rate-limiting and respect for robots.txt.
-- Large LLM usage may be costly or require batching, streaming, or token limits.
-- FAISS and embeddings memory needs grow with document size — monitor memory usage.
+- Uploaded PDF may be large — chunking and embedding will use memory/time. Consider smaller documents for quick iteration.
+- The router (`check_local_knowledge`) uses an LLM call to decide whether local content suffices — this can be noisy. Use `--no-web` to force local-only behavior when desired.
+- Index compatibility: ensure the same `EMBEDDING_MODEL` is used when saving and loading FAISS indexes.
 
 <h2><span style="color:#7f7f7f">How to run</span></h2>
 
-1. Create and activate a virtual environment.
-2. Install dependencies (see section above).
-3. Ensure `.env` is present and required keys are set.
-4. Place `genai-principles.pdf` or adjust `pdf_path` in `main()`.
-5. Run the script:
+CLI mode (recommended for quick scripted runs):
 
 ```bash
-python app.py
+python AIAgenticRAGWithUI/app.py \
+  --pdf path/to/your.pdf \
+  --query "Summarize agentic RAG" \
+  --save-index \
+  --index-path my_faiss_index
 ```
 
-You should see messages for "Setting up vector database...", retrieval source (local or web), and a printed "Final Answer:".
+Options:
+- `--no-web` : disable web search/scraping; use local documents only.
+- `--save-index` : save built FAISS index to `--index-path` to reuse later.
 
-<h2><span style="color:#bcbd22">Notes about models & resources</span></h2>
+Streamlit UI (recommended for interactive use):
 
-- `ChatGroq` and the `crew_llm` use hosted models; verify your API keys and quotas.
-- If you don't have access to those providers, replace the LLM instantiation with a local or other hosted model supported by your environment (e.g., `OpenAI`, `HuggingFaceHub`, or a smaller local LLM wrapper).
-- The code uses `HuggingFaceEmbeddings` with `sentence-transformers/all-mpnet-base-v2`. That embedding model is small and suitable for many tasks.
+1. Install dependencies (see above).
+2. Run:
 
-<h2><span style="color:#1b9e77">Extending & next steps</span></h2>
+```bash
+streamlit run AIAgenticRAGWithUI/app.py
+```
 
-- Add caching for web scraping results to reduce API calls and rate limits.
-- Add unit tests for `check_local_knowledge`, `setup_vector_db`, and `process_query` — include a small sample PDF for fast tests.
-- Add a CLI interface (argparse or Typer) to supply PDF path, query, and toggles for web search.
-- Add safety limits (time limits, token budgets) to LLM calls.
+3. In the browser:
+- Upload a PDF (or provide a path to an existing FAISS index in the UI input).
+- Optionally set an index path and choose to save the built index.
+- Enter your query and click Ask.
+
+<h2><span style="color:#bcbd22">Index persistence details</span></h2>
+
+- The CLI attempts to load a FAISS index from `--index-path` using `FAISS.load_local( index_path, embeddings )`.
+- If the index doesn't exist or fails to load, the CLI will rebuild from the provided PDF.
+- In Streamlit, the UI can also load an index from the provided index path or build from the uploaded PDF and optionally save the index for reuse.
+- Ensure the same `EMBEDDING_MODEL` constant is used across runs so saved indexes remain compatible.
+
+<h2><span style="color:#1b9e77">Files changed / new artifacts</span></h2>
+
+- `AIAgenticRAGWithUI/app.py` — added Streamlit UI, CLI flags, FAISS load/save, and embedding model constant.
+- `AIAgenticRAGWithUI/requirements.txt` — added `streamlit` and `google-generativeai` entries.
 
 <h2><span style="color:#9467bd">Troubleshooting</span></h2>
 
-- Import errors: ensure correct package names and versions. Some packages use different distribution names.
-- FAISS build problems on macOS: prefer `faiss-cpu` via conda or use a prebuilt wheel.
-- API key errors: confirm keys are set and valid. The script reads env vars via `python-dotenv`'s `load_dotenv()`.
+- If Streamlit fails to import, ensure `streamlit` is installed in the active environment.
+- If FAISS fails to build on macOS, try installing a prebuilt wheel or use conda to install `faiss-cpu`.
+- If embedding or model calls fail, double-check API keys and network access.
 
-<h2><span style="color:#2ca02c">Example change: small CLI</span></h2>
+<h2><span style="color:#2ca02c">Example changes you can make next</span></h2>
 
-You can quickly add `argparse` to allow `--pdf` and `--query` to be provided from the command line. The main logic already accepts `pdf_path` and `query` variables — refactor `main()` to parse CLI args and pass them through.
+- Add deterministic index file naming (e.g., hash the PDF contents) so the index path can be auto-derived.
+- Add provenance/tracing in the UI showing which chunks or web sources contributed to the answer.
+- Add a background worker for long-running embedding/index builds so the UI remains responsive.
 
 <h2><span style="color:#d62728">License & contact</span></h2>
 
@@ -124,6 +174,4 @@ This repository does not include an explicit license file. Add a `LICENSE` (for 
 
 For questions about this script, inspect `app.py` and open an issue or contact the repository owner.
 
----
 
-*README generated from the code in `app.py`.*
