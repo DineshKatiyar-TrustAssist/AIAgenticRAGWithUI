@@ -7,11 +7,9 @@ from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 from crewai_tools import SerperDevTool, ScrapeWebsiteTool
 from crewai import Agent, Task, Crew, LLM
-import sys
 import tempfile
 import shutil
-
-import argparse
+import sys
 from pathlib import Path
 
 
@@ -170,7 +168,7 @@ def setup_vector_db(pdf_path):
         model_name=EMBEDDING_MODEL
     )
     vector_db = FAISS.from_documents(chunks, embeddings)
-    
+
     return vector_db
 
 def get_local_content(vector_db, query):
@@ -212,162 +210,88 @@ def process_query(query, vector_db, local_context):
     answer = generate_final_answer(context, query)
     return answer
 
-# define main function
-def main():
-    # Setup
-    pdf_path = "Agent Quality.pdf" 
     
-    # Initialize vector database
-    print(f"Setting up vector database from: {pdf_path} ...")
-    try:
-        vector_db = setup_vector_db(pdf_path)
-    except Exception as e:
-        print(f"Error creating vector DB from '{pdf_path}': {e}")
-        return
+def run_streamlit():
+    """Streamlit entrypoint for the app."""
+    import streamlit as st
 
-    # Get initial context from PDF for routing
-    local_context = get_local_content(vector_db, "")
-    
-    # Example usage
-    query = "What does the Agent quality matter?"
-    result = process_query(query, vector_db, local_context)
-    print("\nFinal Answer:")
-    print(result)
-if __name__ == "__main__":
-    # If running under Streamlit, launch the Streamlit UI; otherwise run the CLI main()
-    if "streamlit" in sys.modules:
-        # import here to keep streamlit optional when running CLI
-        import streamlit as st
+    st.set_page_config(page_title="Agentic RAG", layout="wide")
+    st.title("Agentic RAG — PDF + Web Retrieval Demo")
 
-        def run_streamlit():
-            st.set_page_config(page_title="Agentic RAG", layout="wide")
-            st.title("Agentic RAG — PDF + Web Retrieval Demo")
+    st.markdown("Upload a PDF to build a local vector DB, enter a query, and press Ask.")
 
-            st.markdown("Upload a PDF to build a local vector DB, enter a query, and press Ask.")
+    uploaded_file = st.file_uploader("Upload a PDF", type=["pdf"])
 
-            uploaded_file = st.file_uploader("Upload a PDF", type=["pdf"])
+    query = st.text_input("Enter your question", value="What is Agentic RAG?")
 
-            query = st.text_input("Enter your question", value="What is Agentic RAG?")
+    use_web = st.checkbox("Allow web search if local knowledge is insufficient", value=True)
 
-            use_web = st.checkbox("Allow web search if local knowledge is insufficient", value=True)
+    index_path_input = st.text_input("Index path (optional)", value="faiss_index")
+    save_index_ui = st.checkbox("Save FAISS index after building", value=False)
 
-            index_path_input = st.text_input("Index path (optional)", value="faiss_index")
-            save_index_ui = st.checkbox("Save FAISS index after building", value=False)
+    if uploaded_file is not None:
+        # Save uploaded file to a temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(uploaded_file.read())
+            tmp_path = tmp.name
 
-            if uploaded_file is not None:
-                # Save uploaded file to a temp file
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                    tmp.write(uploaded_file.read())
-                    tmp_path = tmp.name
+        st.info(f"Building vector DB from uploaded file: {uploaded_file.name}")
 
-                st.info(f"Building vector DB from uploaded file: {uploaded_file.name}")
+        # Provide cached loaders for index or pdf
+        @st.cache_resource
+        def load_db_from_index(path):
+            emb = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+            return FAISS.load_local(path, emb)
 
-                # Provide cached loaders for index or pdf
-                @st.cache_resource
-                def load_db_from_index(path):
-                    emb = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-                    return FAISS.load_local(path, emb)
+        @st.cache_resource
+        def build_db_from_pdf(path):
+            return setup_vector_db(path)
 
-                @st.cache_resource
-                def build_db_from_pdf(path):
-                    return setup_vector_db(path)
-
-                vector_db = None
-                if index_path_input and Path(index_path_input).exists():
-                    try:
-                        vector_db = load_db_from_index(index_path_input)
-                        st.success(f"Loaded FAISS index from {index_path_input}")
-                    except Exception as e:
-                        st.warning(f"Failed to load FAISS index from {index_path_input}: {e}. Rebuilding from PDF.")
-
-                if vector_db is None:
-                    try:
-                        vector_db = build_db_from_pdf(tmp_path)
-                    except Exception as e:
-                        st.error(f"Error creating vector DB: {e}")
-                        return
-
-                    if save_index_ui and index_path_input:
-                        try:
-                            Path(index_path_input).mkdir(parents=True, exist_ok=True)
-                            vector_db.save_local(index_path_input)
-                            st.success(f"Saved FAISS index to {index_path_input}")
-                        except Exception as e:
-                            st.warning(f"Failed to save FAISS index to {index_path_input}: {e}")
-
-                # get initial local context
-                local_context = get_local_content(vector_db, "")
-
-                if st.button("Ask"):
-                    with st.spinner("Processing query..."):
-                        if not use_web:
-                            # If web disabled, check local routing and exit if not answerable
-                            can_local = check_local_knowledge(query, local_context)
-                            if not can_local:
-                                st.warning("Local knowledge does not contain the answer and web search is disabled.")
-                                return
-
-                        answer = process_query(query, vector_db, local_context)
-                        st.subheader("Answer")
-                        st.write(answer)
-
-                # cleanup temp file on Streamlit stop — leave it for caching, or remove here
-                # shutil.rmtree or os.remove could be used; leaving file for caching lifecycle.
-            else:
-                st.info("Please upload a PDF to begin.")
-
-        run_streamlit()
-    else:
-        # CLI mode with options for index persistence
-        parser = argparse.ArgumentParser(description="Agentic RAG CLI")
-        parser.add_argument("--pdf", default="Agent Quality.pdf", help="Path to PDF to index")
-        parser.add_argument("--query", default="What does the Agent quality matter?", help="Query to ask the agent")
-        parser.add_argument("--no-web", action="store_true", help="Disable web search/scraping; use local only")
-        parser.add_argument("--save-index", action="store_true", help="Save built FAISS index to disk")
-        parser.add_argument("--index-path", default="faiss_index", help="Directory path to save/load FAISS index")
-        args = parser.parse_args()
-
-        pdf_path = args.pdf
-        index_path = args.index_path
-
-        # Try to load existing FAISS index if present
-        embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-        if index_path and Path(index_path).exists():
+        vector_db = None
+        if index_path_input and Path(index_path_input).exists():
             try:
-                print(f"Loading FAISS index from: {index_path}")
-                vector_db = FAISS.load_local(index_path, embeddings)
+                vector_db = load_db_from_index(index_path_input)
+                st.success(f"Loaded FAISS index from {index_path_input}")
             except Exception as e:
-                print(f"Failed to load FAISS index from '{index_path}': {e}\nRebuilding from PDF...")
-                try:
-                    vector_db = setup_vector_db(pdf_path)
-                except Exception as e2:
-                    print(f"Error creating vector DB from '{pdf_path}': {e2}")
-                    sys.exit(1)
-        else:
-            try:
-                vector_db = setup_vector_db(pdf_path)
-            except Exception as e:
-                print(f"Error creating vector DB from '{pdf_path}': {e}")
-                sys.exit(1)
+                st.warning(f"Failed to load FAISS index from {index_path_input}: {e}. Rebuilding from PDF.")
 
-            if args.save_index:
+        if vector_db is None:
+            try:
+                vector_db = build_db_from_pdf(tmp_path)
+            except Exception as e:
+                st.error(f"Error creating vector DB: {e}")
+                return
+
+            if save_index_ui and index_path_input:
                 try:
-                    Path(index_path).mkdir(parents=True, exist_ok=True)
-                    vector_db.save_local(index_path)
-                    print(f"Saved FAISS index to: {index_path}")
+                    Path(index_path_input).mkdir(parents=True, exist_ok=True)
+                    vector_db.save_local(index_path_input)
+                    st.success(f"Saved FAISS index to {index_path_input}")
                 except Exception as e:
-                    print(f"Failed to save FAISS index to '{index_path}': {e}")
+                    st.warning(f"Failed to save FAISS index to {index_path_input}: {e}")
 
-        # Get initial context from DB for routing
+        # get initial local context
         local_context = get_local_content(vector_db, "")
 
-        # If web disabled and local routing fails, exit with message
-        if args.no_web:
-            can_local = check_local_knowledge(args.query, local_context)
-            if not can_local:
-                print("Local knowledge does not contain the answer and web search is disabled (--no-web).")
-                sys.exit(0)
+        if st.button("Ask"):
+            with st.spinner("Processing query..."):
+                if not use_web:
+                    # If web disabled, check local routing and exit if not answerable
+                    can_local = check_local_knowledge(query, local_context)
+                    if not can_local:
+                        st.warning("Local knowledge does not contain the answer and web search is disabled.")
+                        return
 
-        result = process_query(args.query, vector_db, local_context)
-        print("\nFinal Answer:")
-        print(result)
+                answer = process_query(query, vector_db, local_context)
+                st.subheader("Answer")
+                st.write(answer)
+
+        # cleanup temp file on Streamlit stop — leave it for caching, or remove here
+        # shutil.rmtree or os.remove could be used; leaving file for caching lifecycle.
+    else:
+        st.info("Please upload a PDF to begin.")
+
+
+if __name__ == "__main__":
+    # Run Streamlit entrypoint. This will require `streamlit` to be installed in the environment.
+    run_streamlit()
